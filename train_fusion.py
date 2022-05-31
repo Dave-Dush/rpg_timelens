@@ -11,6 +11,8 @@ import torch
 from timelens.fusion_network import Fusion
 import math
 from torch.utils.data import DataLoader
+import torchvision.transforms as pt_transforms
+import wandb
 import lpips
 """
 Convert definitions to arg flags
@@ -18,12 +20,21 @@ Convert definitions to arg flags
 root_image_folder = "/usr/stud/dave/storage/user/dave/minivimeo_septuplet/00003_0003/upsampled/imgs/"
 root_event_folder = "/usr/stud/dave/storage/user/dave/minivimeo_septuplet/00003_0003/events_copy/"
 
+wandb.init(project="timelens", entity="dave-dush")
+
 transform = transformers.initialize_transformers()
 
-# Hyperparameters
-nb_epochs = 27
-batch_size=4
+nb_epochs = 50
+batch_size = 4
 starting_lr = 1e-4
+
+# Hyperparameters
+wandb.config = {
+    "nb_epochs": nb_epochs,
+    "batch_size": batch_size,
+    "starting_lr": starting_lr,
+}
+
 
 ergb_dset = HybridDataset.HybridDataset(root_image_folder,root_event_folder,3, transform)
 
@@ -59,7 +70,9 @@ for epoch in range(nb_epochs):
 
         optimizer.step()
         losses.append(train_loss.item())
-
-    scheduler.step()
+        
+    #scheduler.step()
     running_lr=optimizer.param_groups[0]["lr"]
+    training_loss=torch.tensor(losses).mean()
+    wandb.log({"epoch": epoch+1, "training loss": training_loss, "targets": wandb.Image(targets), "logits": wandb.Image(synthesized_img)})
     print(f"Epoch {epoch+1}/{nb_epochs}, learning rate {running_lr}, training loss {torch.tensor(losses).mean():.5f}")
