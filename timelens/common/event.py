@@ -433,13 +433,15 @@ class EventSequence(object):
         end_time=None,
     ):
         """Reads event sequence from numpy file list."""
-        if len(list_of_filenames) > 1:
-            features_list = []
-            for f in tqdm.tqdm(list_of_filenames):
-                features_list += [load_events(f)]# for filename in list_of_filenames]
-            features = np.concatenate(features_list)
-        else:
-            features = load_events(list_of_filenames[0])
+        # if len(list_of_filenames) > 1:
+        #     features_list = []
+        #     for f in tqdm.tqdm(list_of_filenames):
+        #         features_list += [load_events(f)]# for filename in list_of_filenames]
+        #     features = np.concatenate(features_list)
+        # else:
+        #     features = load_events(list_of_filenames[0])
+
+        features = load_events(list_of_filenames)
 
         return EventSequence(features, image_height, image_width, start_time, end_time)
 

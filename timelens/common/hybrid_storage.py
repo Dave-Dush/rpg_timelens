@@ -80,5 +80,4 @@ class HybridStorage(object):
             image_width=images._width,
             event_file_template=event_file_template
         )
-
         return cls(images, events)

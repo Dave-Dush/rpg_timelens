@@ -23,6 +23,10 @@ class Fusion(nn.Module):
 
     def run_and_pack_to_example(self, example):
         example['middle']['fusion'] = self.run_fusion(example)
+
+    def custom_run(self, features):
+        return self.fusion_network(features)
         
-    def forward(self, example):
-        return self.run_fusion(example)
+    def forward(self, features):
+        # return self.run_fusion(example)
+        return self.custom_run(features)
