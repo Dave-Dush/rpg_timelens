@@ -24,7 +24,7 @@ wandb.init(project="timelens", entity="dave-dush")
 
 transform = transformers.initialize_transformers()
 
-nb_epochs = 50
+nb_epochs = 40
 batch_size = 4
 starting_lr = 1e-4
 
@@ -38,22 +38,32 @@ wandb.config = {
 
 ergb_dset = HybridDataset.HybridDataset(root_image_folder,root_event_folder,3, transform)
 
-ergb_loader = DataLoader(dataset=ergb_dset, batch_size=batch_size, shuffle=False, num_workers=0)
+train_size = math.floor(0.7*len(ergb_dset))
+val_size = math.ceil(0.2*len(ergb_dset))
+test_size = len(ergb_dset) - train_size - val_size
+
+train_dset = torch.utils.data.Subset(ergb_dset, range(train_size))
+val_dset = torch.utils.data.Subset(ergb_dset, range(train_size, train_size+val_size))
+test_dset = torch.utils.data.Subset(ergb_dset, range(train_size+val_size, train_size+val_size+test_size))
+
+train_ergb_loader = DataLoader(dataset=train_dset, batch_size=batch_size, shuffle=False, num_workers=0)
+val_ergb_loader = DataLoader(dataset=val_dset, batch_size=batch_size, shuffle=False, num_workers=0)
+# test_ergb_loader = DataLoader(dataset=test_dset, batch_size=batch_size, shuffle=False, num_workers=0)
 
 
-nb_iterations = math.ceil(len(ergb_dset)/batch_size)
+nb_iterations = math.ceil(train_size/batch_size)
 
 device = torch.device("cuda")
 fusion_model = Fusion()
 fusion_model.to(device)
 
 optimizer = torch.optim.Adam(fusion_model.parameters(), lr=starting_lr)
-scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
+#scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
 fusion_loss_fn = losses.FusionLoss(device)
 
 for epoch in range(nb_epochs):
     losses = list()
-    for i, (trainable_features, targets) in enumerate(ergb_loader):
+    for i, (trainable_features, targets) in enumerate(train_ergb_loader):
         trainable_features = trainable_features.to(device)
         targets = targets.to(device)
 
@@ -71,8 +81,26 @@ for epoch in range(nb_epochs):
         optimizer.step()
         losses.append(train_loss.item())
         
-    #scheduler.step()
-    running_lr=optimizer.param_groups[0]["lr"]
+    # scheduler.step()
+    # running_lr=optimizer.param_groups[0]["lr"]
     training_loss=torch.tensor(losses).mean()
-    wandb.log({"epoch": epoch+1, "training loss": training_loss, "targets": wandb.Image(targets), "logits": wandb.Image(synthesized_img)})
-    print(f"Epoch {epoch+1}/{nb_epochs}, learning rate {running_lr}, training loss {torch.tensor(losses).mean():.5f}")
+    # print(f"Epoch {epoch+1}/{nb_epochs}, learning rate {running_lr}, training loss {torch.tensor(losses).mean():.5f}")
+
+    val_losses = list()
+    for i, (val_features, val_targets) in enumerate(val_ergb_loader):
+        val_features = val_features.to(device)
+        val_targets = val_targets.to(device)
+
+        val_features = torch.squeeze(val_features)
+        
+        with torch.no_grad():
+            val_synthesized_img = fusion_model(val_features)
+            val_synthesized_img = val_synthesized_img.to(device)
+
+        val_loss = fusion_loss_fn(val_synthesized_img, val_targets)
+        val_losses.append(val_loss)
+    avg_val_loss = torch.tensor(val_losses).mean()
+    
+    wandb.log({"epoch": epoch+1, "training loss": training_loss, "val loss": avg_val_loss, \
+        "targets": wandb.Image(targets), "logits": wandb.Image(synthesized_img), \
+        "val_targets": wandb.Image(val_targets), "val logits": wandb.Image(val_synthesized_img)})
