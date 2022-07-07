@@ -45,6 +45,7 @@ class HybridDataset(Dataset):
         default_tensor_conversion = pt_transforms.ToTensor()
 
         idx_interpolate = ((idx+1) * self.skip_scheme) - 1
+
         target_img = Image.open(self.img_pths[idx_interpolate])
         target_img_tensor = default_tensor_conversion(target_img)
         left_img = Image.open(self.img_pths[idx_interpolate - 1])
@@ -56,7 +57,7 @@ class HybridDataset(Dataset):
                     img_height,
                     img_width
                 )
-
+        # check timestamps of events and image from timestamps.txt by assertion
         right_eve = event.EventSequence.from_npz_files(
                     self.eve_pths[idx_interpolate+1],
                     img_height,
@@ -76,13 +77,7 @@ class HybridDataset(Dataset):
             example[0]["after"]["voxel_grid"],
             example[0]["before"]["rgb_image_tensor"],
             ], dim=1)
-        # time_features = {
-        #     "left_img_tensor": example[0]["before"]["voxel_grid"],
-        #     "right_img_tensor": example[0]["after"]["rgb_image_tensor"],
-        #     "left_event_voxel": example[0]["before"]["voxel_grid"],
-        #     "right_event_voxel": example[0]["after"]["voxel_grid"]
-        # }
-
+            
         return trainable_features, target_img_tensor
     
     def _pack_to_example(self, left_image, right_image, left_events, right_events, right_weight):
