@@ -14,7 +14,9 @@ class TimelensVimeoDataset(Dataset):
         self, seq_dirs, skip_scheme, transform, mode
     ):
         self.seq_dirs = seq_dirs
+
         self.skip_scheme = skip_scheme # no. of contiguous frame skips
+
         self.transform = transform
         self.mode = mode
 
@@ -35,6 +37,7 @@ class TimelensVimeoDataset(Dataset):
             
             _imgs.sort()
             _evs.sort()
+
 
             # relying on number of events because sometimes
             # rpg_vid2e generates more frames

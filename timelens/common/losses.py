@@ -8,7 +8,7 @@ class FusionLoss(nn.Module):
         self.device = device
 
     def lpips_loss(self, img1, img2):
-        loss_fn_alex = lpips.LPIPS("net=alex")
+        loss_fn_alex = lpips.LPIPS("net=alex", verbose=False)
         loss_fn_alex = loss_fn_alex.to(self.device)
         return loss_fn_alex(img1, img2)
 
