@@ -1,11 +1,11 @@
 dataset_root = /usr/stud/dave/storage/user/dave/timelens_vimeo
 
-model_path = /usr/stud/dave/storage/user/dave/saved_models/silent_model_ds1k_batsz16.pth
+model_path = /usr/stud/dave/storage/user/dave/saved_models/seq3_model_ds5_batsz4.pth
 
 epochs = 27
 
-batch_size = 16
+batch_size = 4
 
 lr = 1e-4
 
-dataset_size = 1000
+dataset_size = 5

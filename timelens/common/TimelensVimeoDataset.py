@@ -26,6 +26,7 @@ class TimelensVimeoDataset(Dataset):
         self.imgs_to_interpolate_pth = list()
         
         self.event_pth = list()
+        self.torch_tensor = torch_transforms.ToTensor()
 
         self.max_interpolations = 0
         print(f"\nInitializing {self.mode} dataset...")
@@ -42,10 +43,13 @@ class TimelensVimeoDataset(Dataset):
             # relying on number of events because sometimes
             # rpg_vid2e generates more frames
             # than number of events
+            _local_interpolation_sets = math.floor( (len(_evs) - 1) / (self.skip_scheme + 1) )
+
             
-            _local_interpolations = math.floor( (len(_evs) - 1) / (self.skip_scheme + 1) )
-            
-            for idx in range(_local_interpolations):
+            _local_interpolations = self.skip_scheme * _local_interpolation_sets
+            self.max_interpolations += _local_interpolations
+
+            for idx in range(_local_interpolation_sets):
 
                 left_idx = (idx * (self.skip_scheme + 1))
                 right_idx = left_idx + (self.skip_scheme + 1)
@@ -55,70 +59,59 @@ class TimelensVimeoDataset(Dataset):
                 
                 # list of skipped images' path
                 skipped_imgs_pths = [_imgs[skp_idx] for skp_idx in range(left_idx+1, right_idx)]
-                self.imgs_to_interpolate_pth.append(skipped_imgs_pths)
+                self.imgs_to_interpolate_pth.extend(skipped_imgs_pths)
 
                 # list of all events occouring at an index
-                event_set = [_evs[ev_idx] for ev_idx in range(left_idx, right_idx+1)]
+                event_set = [_evs[ev_idx] for ev_idx in range(left_idx+1, right_idx+1)]
                 self.event_pth.append(event_set)
-
-                self.max_interpolations += 1
-
-
-        # print("\nDataset processed")
-            
-        # print(f"Left events {self.left_evs_pth[-3:]}")
-        # print(f"Right events {self.right_evs_pth[-3:]}")
-
-        # print(f"Left imgs {self.left_imgs_pth[-3:]}")
-        # print(f"Right imgs {self.right_imgs_pth[-3:]}")
-
-        # print(f"To interpolate {self.imgs_to_interpolate_pth[-3:]}")
 
     def __len__(self):
         return self.max_interpolations
 
     def __getitem__(self, idx):
 
-        target_imgs_pth = self.imgs_to_interpolate_pth[idx]
+        target_img_pth = self.imgs_to_interpolate_pth[idx]
 
-        raw_target_imgs = [Image.open(tgt_img) for tgt_img in target_imgs_pth]
-        target_imgs_tensor = [torch_transforms.ToTensor(raw_tgt) for raw_tgt in raw_target_imgs]
+        raw_target = Image.open(target_img_pth)
+        target_img_tensor = self.torch_tensor(raw_target)
 
-        left_img = Image.open(self.left_imgs_pth[idx])
-        right_img = Image.open(self.right_imgs_pth[idx])
+        current_set = math.floor(idx / self.skip_scheme)
+
+        left_img = Image.open(self.left_imgs_pth[current_set])
+        right_img = Image.open(self.right_imgs_pth[current_set])
         img_width, img_height = left_img.size # assumption made: all images are of same size
 
-        trainable_features = list()
-        evs_set = self.event_pth[idx]
+        evs_set = self.event_pth[current_set]
 
-        for skp_idx in range(self.skip_scheme):
-            left_eve = event.EventSequence.from_npz_files(
-                evs_set[:skp_idx+2],
-                img_height,
-                img_width
-            )
-            right_eve = event.EventSequence.from_npz_files(
-                evs_set[skp_idx+2:],
-                img_height,
-                img_width
-            )
+        eve_slice_idx = (idx % self.skip_scheme) + 1
 
-            right_weight = float(idx + 1.0) / (self.max_interpolations + 1.0)
+        left_eve = event.EventSequence.from_npz_files(
+            evs_set[:eve_slice_idx],
+            img_height,
+            img_width
+        )
 
-            example = self._pack_to_example(left_img, right_img, left_eve, right_eve, right_weight)
-            example = transformers.apply_transforms(example, self.transform)
-            example = transformers.collate([example]),
-            example = pytorch_tools.move_tensors_to_cuda(example)
+        right_eve = event.EventSequence.from_npz_files(
+            evs_set[eve_slice_idx:],
+            img_height,
+            img_width
+        )
 
-            cat_features = torch.cat([
-                example[0]["before"]["voxel_grid"],
-                example[0]["before"]["rgb_image_tensor"],
-                example[0]["after"]["voxel_grid"],
-                example[0]["before"]["rgb_image_tensor"],
-                ], dim=1)
-            trainable_features.append(cat_features)
+        right_weight = float(idx + 1.0) / (self.max_interpolations + 1.0)
 
-        return trainable_features, target_imgs_tensor
+        example = self._pack_to_example(left_img, right_img, left_eve, right_eve, right_weight)
+        example = transformers.apply_transforms(example, self.transform)
+        example = transformers.collate([example]),
+        example = pytorch_tools.move_tensors_to_cuda(example)
+
+        trainable_features = torch.cat([
+            example[0]["before"]["voxel_grid"],
+            example[0]["before"]["rgb_image_tensor"],
+            example[0]["after"]["voxel_grid"],
+            example[0]["before"]["rgb_image_tensor"],
+            ], dim=1)
+
+        return trainable_features, target_img_tensor
 
     def _pack_to_example(self, left_image, right_image, left_events, right_events, right_weight):
         return {

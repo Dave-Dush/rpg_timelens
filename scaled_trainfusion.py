@@ -12,24 +12,17 @@ from torch.utils.data import DataLoader
 import wandb
 from tqdm import tqdm
 from torchmetrics import PeakSignalNoiseRatio
-# from ignite.metrics import PSNR
-# from ignite.engine import *
 
 def train(train_dirs, val_dirs, args, device):
 
-    wandb.init(project="timelens", entity="dave-dush")
+    # wandb.init(project="timelens", entity="dave-dush")
 
-    wandb.config = {
-        "epochs": args.epochs,
-        "batch_size": args.batch_size,
-        "starting_lr": args.lr,
-    }
+    # wandb.config = {
+    #     "epochs": args.epochs,
+    #     "batch_size": args.batch_size,
+    #     "starting_lr": args.lr,
+    # }
 
-
-    # def eval_step(engine, batch):
-    #     return batch
-
-    # default_evaluator = Engine(eval_step)
 
     transform = transformers.initialize_transformers()
 
@@ -80,7 +73,7 @@ def train(train_dirs, val_dirs, args, device):
             running_train_loss.append(train_loss)
 
         avg_training_loss = torch.tensor(running_train_loss).mean()
-        wandb.log({"targets": wandb.Image(targets[:3]), "logits": wandb.Image(synthesized_img[:3])})
+        # wandb.log({"targets": wandb.Image(targets[:3]), "logits": wandb.Image(synthesized_img[:3])})
         # validation loop
 
         #print(f"Validating at epoch {epoch+1}")
@@ -113,7 +106,7 @@ def train(train_dirs, val_dirs, args, device):
                 #print(f"PSNR at batch {i}: {state.metrics['psnr']}")
                 # running_psnr.append(state.metrics['psnr'])
                 running_psnr.append(psnr_score)
-        wandb.log({"val_targets": wandb.Image(val_targets[:3]), "val logits": wandb.Image(val_synthesized_img[:3])})
+        #wandb.log({"val_targets": wandb.Image(val_targets[:3]), "val logits": wandb.Image(val_synthesized_img[:3])})
 
         avg_val_loss = torch.tensor(running_val_losses).mean()
         avg_psnr = torch.tensor(running_psnr).mean()
@@ -122,33 +115,40 @@ def train(train_dirs, val_dirs, args, device):
 
         if avg_psnr >= max(psnr_ep):
             print(f"Model at epoch {epoch + 1} has better PSNR!")
-            torch.save({
-                "epoch": epoch,
-                "model_state_dict": fusion_model.state_dict(),
-                "optimizer_state_dict": optimizer.state_dict(),
-                "scheduler_state_dir": scheduler.state_dict(),
-            }, args.model_path)
-            print(f"Model saved at {args.model_path}")
+            # torch.save({
+            #     "epoch": epoch,
+            #     "model_state_dict": fusion_model.state_dict(),
+            #     "optimizer_state_dict": optimizer.state_dict(),
+            #     "scheduler_state_dir": scheduler.state_dict(),
+            # }, args.model_path)
+            print(f"Model NOT saved at {args.model_path}")
 
-        # if epoch > 0:
-        #     if psnr_ep[epoch -1] < psnr_ep[epoch]:
-        #         print(f"Model at epoch {epoch + 1} has better PSNR!")
-        #         torch.save({
-        #             "epoch": epoch,
-        #             "model_state_dict": fusion_model.state_dict(),
-        #             "optimizer_state_dict": optimizer.state_dict(),
-        #             "scheduler_state_dir": scheduler.state_dict(),
-        #         }, args.model_path)
-        #         print(f"Model saved at {args.model_path}")
 
         print(f"Epoch {epoch + 1}, training loss {avg_training_loss}, val loss {avg_val_loss}, psnr {avg_psnr}")
-        wandb.log({"epoch": epoch+1, "training loss": avg_training_loss, "val loss": avg_val_loss, "psnr": avg_psnr})
+        #wandb.log({"epoch": epoch+1, "training loss": avg_training_loss, "val loss": avg_val_loss, "psnr": avg_psnr})
 
         scheduler.step()
 
-        # wandb.log({"epoch": epoch+1, "training loss": avg_training_loss, "val loss": avg_val_loss, \
-        #     "targets": wandb.Image(targets[:3]), "logits": wandb.Image(synthesized_img[:3]), \
-        #     "val_targets": wandb.Image(val_targets[:3]), "val logits": wandb.Image(val_synthesized_img[:3])})
+
+# def dummy_train(train_dirs, args):
+
+
+#     transform = transformers.initialize_transformers()
+
+#     train_set = TimelensVimeoDataset.TimelensVimeoDataset(seq_dirs= train_dirs, skip_scheme=3, transform=transform, mode="Train")
+#     train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=False, num_workers=1)
+    
+#     for i, (trainable_features, targets) in enumerate(tqdm(train_loader)):
+#         print("Shape of features", trainable_features.shape)
+#         print("Shape of targets", targets.shape)
+
+#         # to prevent batch collapsing when features batch have only one image
+#         # if trainable_features.shape[0] != 1:
+#         #     trainable_features = torch.squeeze(trainable_features)
+#         # else:
+#         #     trainable_features = trainable_features.view(1, 16, 256, 448)
+        
+#         # trainable_features = trainable_features.to(device)
 
 
 
@@ -197,10 +197,13 @@ if __name__ == "__main__":
     val_size = math.floor(0.2*(len(dir_list)))
     test_size = math.floor(0.2*(len(dir_list)))
 
-    train_dirs = dir_list[:train_size]
-    val_dirs = dir_list[train_size : (train_size + val_size)]
-    test_dirs = dir_list[(train_size + val_size): ]
+    train_dirs = dir_list[:3]
+    val_dirs = dir_list[3:]
+    # train_dirs = dir_list[:train_size]
+    # val_dirs = dir_list[train_size : (train_size + val_size)]
+    # test_dirs = dir_list[(train_size + val_size): ]
 
     
     #print("\nPerforming training...")
     train(train_dirs, val_dirs, args, device)
+    #dummy_train(train_dirs, args)
