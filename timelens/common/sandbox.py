@@ -56,16 +56,16 @@
 #check psnr scheme with cv
 #cv2.PSNR(img1, img2)
 
-from random import randint, randrange
+# from random import randint, randrange
 
 
-def max_psnr():
-    psnr = 42
+# def max_psnr():
+#     psnr = 42
     
-    rand_scores = [42]
+#     rand_scores = [42]
 
-    if psnr >= max(rand_scores):
-        print(psnr)
+#     if psnr >= max(rand_scores):
+#         print(psnr)
 
 
-max_psnr()
+# max_psnr()
