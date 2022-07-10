@@ -435,7 +435,7 @@ class EventSequence(object):
         """Reads event sequence from numpy file list."""
         if len(list_of_filenames) > 1:
             features_list = []
-            for f in tqdm.tqdm(list_of_filenames):
+            for f in list_of_filenames:
                 features_list += [load_events(f)]# for filename in list_of_filenames]
             features = np.concatenate(features_list)
         else:
