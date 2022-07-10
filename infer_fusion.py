@@ -106,8 +106,6 @@ if __name__ == "__main__":
 
     infer_dirs = list(set(dir_list) - set(train_val_dir_list))
     infer_dirs.sort()
-    
-    # 00002/0231 is similar to 00002/0230 hence use 00002/0232 and onwards for testing
-    # infer_dirs[1] -> 00002/0232
 
-    test(infer_dirs[1:4], args, device)
+
+    test(infer_dirs[-1], args, device)

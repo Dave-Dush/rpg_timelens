@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name="seq3ds5bs4"
+#SBATCH --job-name="seq3Ds1kBs16"
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=10
 #SBATCH --gres=gpu:1,VRAM:12G
