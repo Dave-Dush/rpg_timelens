@@ -1,8 +1,8 @@
 #!/bin/bash
-#SBATCH --job-name="seq3Ds1kBs16"
+#SBATCH --job-name="alpha70"
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=10
-#SBATCH --gres=gpu:1,VRAM:12G
+#SBATCH --gres=gpu:2,VRAM:12G
 #SBATCH --mem=32G
 #SBATCH --time=168:00:00
 #SBATCH --mail-type=ALL

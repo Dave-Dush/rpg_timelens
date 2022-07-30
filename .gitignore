@@ -1,4 +1,7 @@
 timelens/__pycache__/
 timelens/common/__pycache__/
+config/timelens_infer.txt
 wandb/
+data/
+runs/
 .vscode/

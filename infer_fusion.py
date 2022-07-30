@@ -18,7 +18,7 @@ def test(test_dirs, args, device):
     infer_path = args.infer_path
     
     test_set = TimelensVimeoDataset.TimelensVimeoDataset(seq_dirs= test_dirs, skip_scheme=3, transform=transform, mode="Test")
-    test_loader = DataLoader(test_set, batch_size=args.batch_size, shuffle=True, num_workers=4, pin_memory=True)
+    test_loader = DataLoader(test_set, batch_size=args.batch_size, shuffle=False, num_workers=4, pin_memory=True)
 
     model = Fusion()
 
@@ -27,7 +27,7 @@ def test(test_dirs, args, device):
     model.to(device)
     
     with torch.no_grad():
-
+        model.eval()
         fusion_loss_fn = losses.FusionLoss(device)
 
         running_test_losses = list()
@@ -75,11 +75,7 @@ def config_parse():
 
     parser.add_argument("--infer_path", type=str)
 
-    parser.add_argument("--epochs", type=int)
-
     parser.add_argument("--batch_size", type=int)
-
-    parser.add_argument("--lr", type=float)
 
     parser.add_argument("--dataset_size", type=int)
 
@@ -92,9 +88,6 @@ if __name__ == "__main__":
     args = config_parse()
     
     base_dir = args.dataset_root
-    total_epochs = args.epochs
-    batch_size = args.batch_size
-    lr = args.lr
     dset_size = args.dataset_size
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -107,5 +100,5 @@ if __name__ == "__main__":
     infer_dirs = list(set(dir_list) - set(train_val_dir_list))
     infer_dirs.sort()
 
-
-    test(infer_dirs[-1], args, device)
+    #print(infer_dirs[-2:-1])
+    test(infer_dirs[-6:-5], args, device)
