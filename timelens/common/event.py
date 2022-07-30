@@ -3,7 +3,7 @@ import os
 import numpy as np
 from PIL import Image
 import tqdm
-from timelens.common import os_tools #, visualization_tools
+from timelens.common import os_tools, visualization_tools
 
 TIMESTAMP_COLUMN = 2
 X_COLUMN = 0
@@ -265,19 +265,19 @@ class EventSequence(object):
                 end_time=self._end_time,
             )
 
-    def filter_by_timestamp(self, start_time, duration, make_deep_copy=True):
+    def filter_by_timestamp(self, start_time, end_time, make_deep_copy=True):
         """Returns event sequence filtered by the timestamp.
 
         The new sequence includes event in [start_time, start_time+duration).
         """
-        end_time = start_time + duration
+        #end_time = start_time + duration
         mask = (start_time <= self._features[:, TIMESTAMP_COLUMN]) & (
             end_time > self._features[:, TIMESTAMP_COLUMN]
         )
 
         event_sequence = self.filter_by_mask(mask, make_deep_copy)
         event_sequence._start_time = start_time
-        event_sequence._end_time = start_time + duration
+        event_sequence._end_time = end_time
         return event_sequence
 
     def to_image(self, background=None):

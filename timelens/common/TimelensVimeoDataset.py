@@ -1,121 +1,102 @@
-from glob import glob
-import math
-import os
-import torch
 from torch.utils.data import Dataset
+import torchvision
 import torchvision.transforms as torch_transforms
-from . import (transformers, pytorch_tools, event)
+from . import (event, representation)
 from PIL import Image
+import math
 
 
 class TimelensVimeoDataset(Dataset):
 
     def __init__(
-        self, seq_dirs, skip_scheme, transform, mode
+        self, left_imgs, middle_imgs, right_imgs, event_roots, matching_ts, args
     ):
-        self.seq_dirs = seq_dirs
+        self.left_imgs_pths = left_imgs
+        self.middle_imgs_pths = middle_imgs
+        self.right_imgs_pths = right_imgs
+        self.event_roots = event_roots
+        self.matching_ts = matching_ts
 
-        self.skip_scheme = skip_scheme # no. of contiguous frame skips
-
-        self.transform = transform
-        self.mode = mode
-
-        self.left_imgs_pth = list()
-        self.right_imgs_pth = list()
-
-        self.imgs_to_interpolate_pth = list()
+        self.transforms = torch_transforms.ToTensor()
+        self.to_voxel = representation.to_voxel_grid
         
-        self.event_pth = list()
-        self.torch_tensor = torch_transforms.ToTensor()
-
-        self.max_interpolations = 0
-        print(f"\nInitializing {self.mode} dataset...")
-        for seq_dir in self.seq_dirs:
-
-            #print(f"\nAccumulating {seq_dir}")
-            _imgs = glob(os.path.join(seq_dir + "/upsampled/imgs", "*.png"))
-            _evs = glob(os.path.join(seq_dir, "events/*.npz"))
-            
-            _imgs.sort()
-            _evs.sort()
-
-
-            # relying on number of events because sometimes
-            # rpg_vid2e generates more frames
-            # than number of events
-            _local_interpolation_sets = math.floor( (len(_evs) - 1) / (self.skip_scheme + 1) )
-
-            
-            _local_interpolations = self.skip_scheme * _local_interpolation_sets
-            self.max_interpolations += _local_interpolations
-
-            for idx in range(_local_interpolation_sets):
-
-                left_idx = (idx * (self.skip_scheme + 1))
-                right_idx = left_idx + (self.skip_scheme + 1)
-
-                self.left_imgs_pth.append(_imgs[left_idx])
-                self.right_imgs_pth.append(_imgs[right_idx])
-                
-                # list of skipped images' path
-                skipped_imgs_pths = [_imgs[skp_idx] for skp_idx in range(left_idx+1, right_idx)]
-                self.imgs_to_interpolate_pth.extend(skipped_imgs_pths)
-
-                # list of all events occouring at an index
-                event_set = [_evs[ev_idx] for ev_idx in range(left_idx+1, right_idx+1)]
-                self.event_pth.append(event_set)
+        self.img_height = args.height
+        self.img_width = args.width
 
     def __len__(self):
-        return self.max_interpolations
+        return len(self.middle_imgs_pths)
 
     def __getitem__(self, idx):
 
-        target_img_pth = self.imgs_to_interpolate_pth[idx]
+        ev_dir = math.floor(idx/3)
+        left_img_tensor = self.transforms(Image.open(self.left_imgs_pths[idx]))
+        target_img_tensor = self.transforms(Image.open(self.middle_imgs_pths[idx]))
+        right_img_tensor = self.transforms(Image.open(self.right_imgs_pths[idx]))
 
-        raw_target = Image.open(target_img_pth)
-        target_img_tensor = self.torch_tensor(raw_target)
+        #ACCESS EVENTS as 00000000.npz to 0000000032.npz
+        _ts = self.matching_ts[idx] #ids are dicts
 
-        current_set = math.floor(idx / self.skip_scheme)
+        left_ts = _ts["left"]
+        middle_ts = _ts["middle"]
+        right_ts = _ts["right"]
+        
+        ev_seq = event.EventSequence.from_folder(self.event_roots[ev_dir], self.img_height, self.img_width, "*.npz")
 
-        left_img = Image.open(self.left_imgs_pth[current_set])
-        right_img = Image.open(self.right_imgs_pth[current_set])
-        img_width, img_height = left_img.size # assumption made: all images are of same size
+        left_ev = ev_seq.filter_by_timestamp(left_ts, middle_ts)
+        right_ev = ev_seq.filter_by_timestamp(middle_ts, right_ts)
 
-        evs_set = self.event_pth[current_set]
+        left_voxel = self.to_voxel(left_ev)
+        right_voxel = self.to_voxel(right_ev)
 
-        eve_slice_idx = (idx % self.skip_scheme) + 1
+        left_ev_tensor = self.transforms(left_ev.to_image())
+        right_ev_tensor = self.transforms(right_ev.to_image())
 
-        left_eve = event.EventSequence.from_npz_files(
-            evs_set[:eve_slice_idx],
-            img_height,
-            img_width
-        )
+        
 
-        right_eve = event.EventSequence.from_npz_files(
-            evs_set[eve_slice_idx:],
-            img_height,
-            img_width
-        )
-
-        right_weight = float(idx + 1.0) / (self.max_interpolations + 1.0)
-
-        example = self._pack_to_example(left_img, right_img, left_eve, right_eve, right_weight)
-        example = transformers.apply_transforms(example, self.transform)
-        example = transformers.collate([example]),
-        example = pytorch_tools.move_tensors_to_cuda(example)
-
-        trainable_features = torch.cat([
-            example[0]["before"]["voxel_grid"],
-            example[0]["before"]["rgb_image_tensor"],
-            example[0]["after"]["voxel_grid"],
-            example[0]["before"]["rgb_image_tensor"],
-            ], dim=1)
-
-        return trainable_features, target_img_tensor
-
-    def _pack_to_example(self, left_image, right_image, left_events, right_events, right_weight):
         return {
-            "before": {"rgb_image": left_image, "events": left_events},
-            "middle": {"weight": right_weight},
-            "after": {"rgb_image": right_image, "events": right_events},
-        }
+        "before": {"rgb_image_tensor": left_img_tensor, "voxel_grid": left_voxel},
+        "after": {"rgb_image_tensor": right_img_tensor, "voxel_grid": right_voxel},
+        }, left_ev_tensor, right_ev_tensor, target_img_tensor
+
+        # _dir_idx = math.floor(idx/3)
+        # _match_idx = idx % 3
+
+        # _ts = np.loadtxt(os.path.join(self.seq_dirs[_dir_idx], "upsampled/imgs/timestamp.txt")).tolist()
+
+        # _event_root = os.path.join(self.seq_dirs[_dir_idx], "events/")
+        # _event_seq = event.EventSequence.from_folder(_event_root, self.height, self.width, "*.npz")
+
+        # t_start = self._dt[(2*_match_idx)]
+        # t_middle = self._dt[(2*_match_idx) + 1]
+        # t_end = self._dt[(2*_match_idx) + 2]
+
+        # left_event = _event_seq.filter_by_timestamp(t_start, t_middle)
+        # left_voxel = representation.to_voxel_grid(left_event)
+
+        # right_event = _event_seq.filter_by_timestamp(t_middle, t_end)
+        # right_voxel = representation.to_voxel_grid(right_event)
+
+        # left_match = (np.abs(_ts - self._dt[(2*_match_idx)]).argmin())
+        # middle_match = (np.abs(_ts - self._dt[(2*_match_idx) + 1]).argmin())
+        # right_match = (np.abs(_ts - self._dt[(2*_match_idx) + 2]).argmin())
+
+        # left_id = f"{left_match:08d}"
+        # middle_id = f"{middle_match:08d}"
+        # right_id = f"{right_match:08d}"
+
+        # left_path = os.path.join(self.seq_dirs[_dir_idx], f"upsampled/imgs/{left_id}.png")
+        # _left_img = Image.open(left_path)
+        # _left_img_tensor = self.torch_tensor(_left_img)
+
+        # middle_path = os.path.join(self.seq_dirs[_dir_idx], f"upsampled/imgs/{middle_id}.png")
+        # _target_img = Image.open(middle_path)
+        # _target_img_tensor = self.torch_tensor(_target_img)
+
+        # right_path = os.path.join(self.seq_dirs[_dir_idx], f"upsampled/imgs/{right_id}.png")
+        # _right_img = Image.open(right_path)
+        # _right_img_tensor = self.torch_tensor(_right_img)        
+
+        # return {
+        # "before": {"rgb_image_tensor": _left_img_tensor, "voxel_grid": left_voxel},
+        # "after": {"rgb_image_tensor": _right_img_tensor, "voxel_grid": right_voxel},
+        # }, _target_img_tensor

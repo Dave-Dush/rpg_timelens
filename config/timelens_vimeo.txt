@@ -1,10 +1,14 @@
-dataset_root = /usr/stud/dave/storage/user/dave/timelens_vimeo
+equal_dir_txt = /usr/stud/dave/storage/user/dave/timelens_vimeo/equal_dirs.txt
 
-model_path = /usr/stud/dave/storage/user/dave/saved_models/seq3_model_ds1k_batsz16.pth
+model_path = /usr/stud/dave/storage/user/dave/downsampled_models/alpha_07_bs_4_ds1k.pth
 
 epochs = 27
 
-batch_size = 16
+width = 448
+
+height = 256
+
+batch_size = 4
 
 lr = 1e-4
 
