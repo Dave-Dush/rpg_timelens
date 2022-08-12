@@ -1,66 +1,48 @@
 import os
-from glob import glob
+import numpy as np
 from timelens.common import (
-    TimelensVimeoDataset,
+    FlowDataset,
     transformers,
     losses,
 )
-from timelens.fusion_network import Fusion
+from train_warp import dirs_to_paths
+from timelens.warp_network import Warp
 import torch
 from torch.utils.data import DataLoader
 from torchvision.utils import save_image
 from tqdm import tqdm
 from torchmetrics import PeakSignalNoiseRatio
 
-def test(test_dirs, args, device):
-    transform = transformers.initialize_transformers()
+def test(left_imgs, middle_imgs, right_imgs, event_roots, matching_ts, args):
 
     infer_path = args.infer_path
     
-    test_set = TimelensVimeoDataset.TimelensVimeoDataset(seq_dirs= test_dirs, skip_scheme=3, transform=transform, mode="Test")
-    test_loader = DataLoader(test_set, batch_size=args.batch_size, shuffle=False, num_workers=4, pin_memory=True)
+    flow_dset = FlowDataset.FlowDataset(left_imgs, middle_imgs, right_imgs, event_roots, matching_ts, args)
+    test_loader = DataLoader(flow_dset, batch_size=args.batch_size, shuffle=False, num_workers=10)
 
-    model = Fusion()
+    warp_model = Warp()
 
-    model_checkpoint = torch.load(args.model_path)
-    model.load_state_dict(model_checkpoint["model_state_dict"])
-    model.to(device)
-    
+    warp_model_checkpoint = torch.load(args.model_path)
+    warp_model.load_state_dict(warp_model_checkpoint["model_state_dict"])
+    warp_model.to(device)
+    warp_model.eval()
+
+    warp_loss = torch.nn.L1Loss()
+
     with torch.no_grad():
-        model.eval()
-        fusion_loss_fn = losses.FusionLoss(device)
+        for val_i, (val_features, val_left_ev_tensors, val_right_ev_tensors, val_targets) in enumerate(tqdm(test_loader)):
 
-        running_test_losses = list()
-        running_test_psnr = list()
-        psnr = PeakSignalNoiseRatio().to(device)
+            val_targets = val_targets.to(device)
 
-        for outer_i, (test_features, test_targets) in enumerate(tqdm(test_loader)):
-                        
-            test_features = test_features.to(device)
-            test_targets = test_targets.to(device)
+            val_warped_items = warp_model(val_features)
 
-            if test_features.shape[0] != 1:
-                test_features = torch.squeeze(test_features)
-            else:
-                test_features = test_features.view(1, 16, 256, 448)
+            val_bwd_loss = warp_loss(val_warped_items[0], val_targets)
+            val_fwd_loss = warp_loss(val_warped_items[1], val_targets)
 
-            test_synthesized_img = model(test_features)
-            test_synthesized_img = test_synthesized_img.to(device)
+            val_loss = val_bwd_loss + val_fwd_loss
 
-            test_loss = fusion_loss_fn(test_synthesized_img, test_targets)
-            running_test_losses.append(test_loss)
             
-            for batch_i in range(test_synthesized_img.size(0)):
-                save_image(test_synthesized_img[batch_i,:,:,:], f"{infer_path}/{outer_i}_{batch_i}.png")
-           
-            psnr_score = psnr(test_synthesized_img, test_targets)
-            running_test_psnr.append(psnr_score)
 
-        avg_test_loss = torch.tensor(running_test_losses).mean()
-        avg_test_psnr = torch.tensor(running_test_psnr).mean()
-
-        print(f"Average Test loss: {avg_test_loss}")
-        print(f"Average test PSNR {avg_test_psnr}")
 
 def config_parse():
     import configargparse
@@ -69,13 +51,19 @@ def config_parse():
 
     parser.add_argument("--config", is_config_file=True)
 
-    parser.add_argument("--dataset_root", type=str)
+    parser.add_argument("--equal_dir_txt", type=str)
 
     parser.add_argument("--model_path", type=str)
 
-    parser.add_argument("--infer_path", type=str)
+    parser.add_argument("--width", type=int)
+
+    parser.add_argument("--height", type=int)
+
+    parser.add_argument("--epochs", type=int)
 
     parser.add_argument("--batch_size", type=int)
+
+    parser.add_argument("--lr", type=float)
 
     parser.add_argument("--dataset_size", type=int)
 
@@ -83,22 +71,29 @@ def config_parse():
 
     return args
 
+
 if __name__ == "__main__":
 
     args = config_parse()
     
-    base_dir = args.dataset_root
+    equal_dir_txt = args.equal_dir_txt
+    total_epochs = args.epochs
+    batch_size = args.batch_size
+    lr = args.lr
     dset_size = args.dataset_size
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    #print("Getting appropriate dirs")
-    dir_list = glob(os.path.join(base_dir, "*/*"), recursive=True)
-    dir_list.sort()
-    train_val_dir_list = dir_list[:dset_size]
+    print("Getting appropriate dirs")
 
-    infer_dirs = list(set(dir_list) - set(train_val_dir_list))
-    infer_dirs.sort()
+    #get dir list from txt file using with and not np
+    dir_list = []
+    with open(equal_dir_txt, "r") as _eq:
+        _dir = [line.strip() for line in _eq]
+        dir_list.extend(_dir)
+    
+    dir_list = dir_list[-1]
 
-    #print(infer_dirs[-2:-1])
-    test(infer_dirs[-6:-5], args, device)
+    left_imgs, middle_imgs, right_imgs, event_roots, matching_ts = dirs_to_paths([dir_list])
+   
+    #train(left_imgs, middle_imgs, right_imgs, event_roots, matching_ts, args, device)

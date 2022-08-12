@@ -1,0 +1,15 @@
+equal_dir_txt = /usr/stud/dave/storage/user/dave/timelens_vimeo/equal_dirs.txt
+
+model_path = /usr/stud/dave/storage/user/dave/warp_models/fwbw_bs_4_ds1000.pth
+
+epochs = 27
+
+width = 448
+
+height = 256
+
+batch_size = 4
+
+lr = 1e-4
+
+dataset_size = 1000
