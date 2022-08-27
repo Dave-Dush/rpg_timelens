@@ -2,7 +2,7 @@ equal_dir_txt = /usr/stud/dave/storage/user/dave/timelens_vimeo/equal_dirs.txt
 
 model_path = /usr/stud/dave/storage/user/dave/downsampled_models/alpha_07_bs_4_ds1k.pth
 
-epochs = 27
+epochs = 18
 
 width = 448
 
@@ -12,4 +12,8 @@ batch_size = 4
 
 lr = 1e-4
 
-dataset_size = 1000
+dataset_size = 100
+
+lambda_l1 = 0.7
+
+lambda_lpips = 1.3
