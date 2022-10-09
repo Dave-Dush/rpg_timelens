@@ -1,6 +1,4 @@
 import math
-from tkinter import Image
-
 from wandb import wandb
 from timelens.common import (
     TimelensVimeoDataset,

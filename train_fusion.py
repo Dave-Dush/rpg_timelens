@@ -144,7 +144,7 @@ def train(args, train_dirs, val_dirs):
     validation_set = list()
     
     for train_dir in train_dirs:
-        
+        pass
         
     # wandb.init(project="timelens", entity="dave-dush")
 
