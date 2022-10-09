@@ -6,7 +6,7 @@ import math
 import torch
 #from torchvision import utils
 from torch.utils.data import DataLoader
-#import torchmetrics
+import torchmetrics
 # from torch.utils.tensorboard import SummaryWriter
 # from torchsummary import summary
 import lpips
@@ -42,15 +42,14 @@ def weights_init(m):
 def train(left_imgs, middle_imgs, right_imgs, event_roots, matching_ts, args, device):
 
     #writer = SummaryWriter(args.summary_path)
-    wandb.init(project="gan_setup", entity="dave-dush")
-
-    wandb.config = {
+    wandb.init(project="gan_setup", entity="dave-dush", dir=args.wandb_path, config={
         "epochs": args.epochs,
         "batch_size": args.batch_size,
         "starting_lr": args.lr,
-    }
+    })
 
-    print("beginning setup")
+    #wandb_name = wandb.run.name
+
     #################
     # Models
     netD = Discriminator().to(device)
@@ -68,6 +67,7 @@ def train(left_imgs, middle_imgs, right_imgs, event_roots, matching_ts, args, de
     lpips_loss = lpips.LPIPS("net=alex", verbose=False).to(device)
     bce_loss = torch.nn.BCELoss()
     #####################
+    psnr = torchmetrics.PeakSignalNoiseRatio().to(device)
 
     #####################
     # Optimizers
@@ -75,7 +75,8 @@ def train(left_imgs, middle_imgs, right_imgs, event_roots, matching_ts, args, de
     optimizerG = torch.optim.Adam(netG.parameters(), lr=args.lr, betas=(0.5, 0.999))
     
     # Scheduler
-    #genScheduler = torch.optim.lr_scheduler.StepLR(optimizerG, step_size=30, gamma=0.1)
+    # genScheduler = torch.optim.lr_scheduler.StepLR(optimizerG, step_size=1, gamma=0.1)
+    # disScheduler = torch.optim.lr_scheduler.StepLR(optimizerG, step_size=1, gamma=0.1)
     #####################
 
 
@@ -86,7 +87,7 @@ def train(left_imgs, middle_imgs, right_imgs, event_roots, matching_ts, args, de
     fake_label = 1
 
     timelens_dset = TimelensVimeoDataset.TimelensVimeoDataset(left_imgs, middle_imgs, right_imgs, event_roots, matching_ts, args)
-    timelens_loader = DataLoader(timelens_dset, batch_size=args.batch_size, shuffle=True, num_workers=10)
+    timelens_loader = DataLoader(timelens_dset, batch_size=args.batch_size, shuffle=False, num_workers=10, pin_memory=True)
     ####################
 
     #draw_models(timelens_loader, writer, netD, netG)
@@ -97,9 +98,10 @@ def train(left_imgs, middle_imgs, right_imgs, event_roots, matching_ts, args, de
     D_losses = list()
     ####################
 
+    wandb.watch(models= netG, criterion=lpips_loss, log= "gradients", log_freq=100)
+
     print("training")
     for epoch in tqdm(range(args.epochs)):
-        print(f"{epoch+1}/{args.epochs}")
         for i, (trainable_features, left_ev_tensors, right_ev_tensors, targets) in enumerate(timelens_loader):
             print(f"{i+1}/{len(timelens_loader)}")
             # Train D against 'real' data
@@ -136,7 +138,8 @@ def train(left_imgs, middle_imgs, right_imgs, event_roots, matching_ts, args, de
             targets = targets.to(device)
 
             # Loss for generator bce + l1 + lpips
-            _advLoss = bce_loss(output, gan_label)
+            rawAdvLoss = bce_loss(output, gan_label)
+            _advLoss = args.lambda_adv*rawAdvLoss
 
             rawL1Loss = l1_loss(fake, targets)
             _l1Loss = (args.lambda_l1 * rawL1Loss)
@@ -145,18 +148,21 @@ def train(left_imgs, middle_imgs, right_imgs, event_roots, matching_ts, args, de
             _percepLoss = (args.lambda_lpips * rawPercepLoss)
 
             errG = _advLoss + _l1Loss + _percepLoss
-            errG.backward()
+            if (i > 100): # 17 percent of batch size
+                errG.backward()
 
-            D_G_z2 = output.mean().item()
-            optimizerG.step()
+                D_G_z2 = output.mean().item()
+                optimizerG.step()
 
             ##########################
             # Logging metrics
-            if i%2 == 0:
-                print("[%d]/[%d] [%d]/[%d]\tLoss_D: %.4f\tLoss G: %.4f\tD(x): %.4f\tD(G(x)): %.4f / %.4f" %(epoch+1, args.epochs, i+1, len(timelens_loader), errD.item(), errG.item(), D_x, D_G_z1, D_G_z2))
+            if i%10 == 0:
+                print("[%d]/[%d] [%d]/[%d]" %(epoch+1, args.epochs, i+1, len(timelens_loader)))
+                psnr_score = psnr(fake, targets)
                 wandb.log({
                     "fake": wandb.Image(fake),
                     "target": wandb.Image(targets),
+                    "psnr": psnr_score.item(),
                 })
 
             G_losses.append(errG.item())
@@ -167,10 +173,13 @@ def train(left_imgs, middle_imgs, right_imgs, event_roots, matching_ts, args, de
                 "errG": errG.item(),
                 "l1 loss": rawL1Loss,
                 "lpips loss": rawPercepLoss,
-                "G adv Loss": _advLoss,
+                "G adv Loss": rawAdvLoss,
             })
             #########################
-        #genScheduler.step()
+        wandb.log({
+            "Epoch": epoch+1,
+        })
+
 ###################################
 
 
@@ -181,7 +190,7 @@ def dirs_to_paths(seq_dirs):
     """
     Return path dictionary that contains left, middle and right structure
     """
-    max_interpolations = len(seq_dirs) * 3
+    max_interpolations = len(seq_dirs) * 9 #9 triplets
 
     event_roots = list()
 
@@ -190,8 +199,8 @@ def dirs_to_paths(seq_dirs):
     right_imgs = list()
     matching_ts = list()
 
-    for m_i in tqdm(range(0, max_interpolations, 3)):
-        dir_idx = math.floor(m_i/3)
+    for m_i in tqdm(range(0, max_interpolations, 9)):
+        dir_idx = math.floor(m_i/9)
 
         _seq_dir = seq_dirs[dir_idx]
         _ts = list()
@@ -203,12 +212,13 @@ def dirs_to_paths(seq_dirs):
         t_start = _ts[0]
         t_end = _ts[-1]
         
-        _dt = np.linspace(t_start, t_end, 7)
+        _dt = np.linspace(t_start, t_end, 19)
 
-        _event_root = os.path.join(_seq_dir, "events/")
+        _event_root = os.path.join(_seq_dir, "events_ct3/")
         event_roots.append(_event_root)
 
-        for in_i in range(3):
+        #9 triplets
+        for in_i in range(9):
 
             _left_t = _dt[(2 * in_i)]
             _middle_t = _dt[(2 * in_i) + 1]
@@ -237,7 +247,7 @@ def dirs_to_paths(seq_dirs):
 
             right_path = os.path.join(_seq_dir, f"upsampled/imgs/{right_id}.png")  
             right_imgs.append(right_path)
-    
+    print(event_roots[:5])
     return left_imgs, middle_imgs, right_imgs, event_roots, matching_ts
 def config_parse():
     import configargparse
@@ -262,9 +272,13 @@ def config_parse():
 
     parser.add_argument("--dataset_size", type=int)
 
+    parser.add_argument("--lambda_adv", type=float)
+
     parser.add_argument("--lambda_l1", type=float)
 
     parser.add_argument("--lambda_lpips", type=float)
+
+    parser.add_argument("--wandb_path", type=str)
 
     args = parser.parse_args()
 
@@ -289,5 +303,5 @@ if __name__ == "__main__":
     dir_list = dir_list[:dset_size]
 
     left_imgs, middle_imgs, right_imgs, event_roots, matching_ts = dirs_to_paths(dir_list)
-
+    #print(left_imgs, "\n", middle_imgs, "\n", right_imgs, "\n", matching_ts)
     train(left_imgs, middle_imgs, right_imgs, event_roots, matching_ts, args, device)

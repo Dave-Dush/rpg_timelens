@@ -28,7 +28,7 @@ class TimelensVimeoDataset(Dataset):
 
     def __getitem__(self, idx):
 
-        ev_dir = math.floor(idx/3)
+        ev_dir = math.floor(idx/9)
         left_img_tensor = self.transforms(Image.open(self.left_imgs_pths[idx]))
         target_img_tensor = self.transforms(Image.open(self.middle_imgs_pths[idx]))
         right_img_tensor = self.transforms(Image.open(self.right_imgs_pths[idx]))
@@ -39,6 +39,7 @@ class TimelensVimeoDataset(Dataset):
         left_ts = _ts["left"]
         middle_ts = _ts["middle"]
         right_ts = _ts["right"]
+
         
         ev_seq = event.EventSequence.from_folder(self.event_roots[ev_dir], self.img_height, self.img_width, "*.npz")
 
