@@ -8,16 +8,16 @@ width = 448
 
 height = 256
 
-batch_size = 8
+batch_size = 4
 
-lr = 3e-4
+lr = 1e-4
 
-dataset_size = 2000
+dataset_size = 1000
 
 lambda_adv = 2
 
-lambda_l1 = 0.7
+lambda_l1 = 2.0
 
-lambda_lpips = 1.4
+lambda_lpips = 2.0
 
 wandb_path = /usr/stud/dave/storage/user/dave/wandb_logs

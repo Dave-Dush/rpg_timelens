@@ -1,5 +1,4 @@
 import torch as th
-from zmq import device
 from timelens.superslomo import unet
 from torch import nn
 

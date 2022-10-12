@@ -15,6 +15,7 @@ from wandb import wandb
 from timelens.common import(
     TimelensVimeoDataset,
 )
+from timelens.common.losses import GANLoss
 from timelens.fusion_network import Fusion as Generator
 from timelens.Discriminator_network import Discriminator
 
@@ -38,6 +39,7 @@ def weights_init(m):
     if classname.find('Conv') != -1:
         torch.nn.init.normal_(m.weight.data, 0.0, 0.02)
 #*******
+
 
 def train(left_imgs, middle_imgs, right_imgs, event_roots, matching_ts, args, device):
 
@@ -65,7 +67,8 @@ def train(left_imgs, middle_imgs, right_imgs, event_roots, matching_ts, args, de
     # Loss functions
     l1_loss = torch.nn.L1Loss()
     lpips_loss = lpips.LPIPS("net=alex", verbose=False).to(device)
-    bce_loss = torch.nn.BCELoss()
+    # gan_criterion = torch.nn.BCEWithLogitsLoss()
+    gan_criterion = GANLoss('vanilla').to(device)
     #####################
     psnr = torchmetrics.PeakSignalNoiseRatio().to(device)
 
@@ -75,16 +78,14 @@ def train(left_imgs, middle_imgs, right_imgs, event_roots, matching_ts, args, de
     optimizerG = torch.optim.Adam(netG.parameters(), lr=args.lr, betas=(0.5, 0.999))
     
     # Scheduler
-    # genScheduler = torch.optim.lr_scheduler.StepLR(optimizerG, step_size=1, gamma=0.1)
-    # disScheduler = torch.optim.lr_scheduler.StepLR(optimizerG, step_size=1, gamma=0.1)
+    genScheduler = torch.optim.lr_scheduler.StepLR(optimizerG, step_size=3, gamma=0.1)
+    disScheduler = torch.optim.lr_scheduler.StepLR(optimizerG, step_size=3, gamma=0.1)
     #####################
 
 
     ####################
     # Data prep
     print("preparing data")
-    real_label = 0
-    fake_label = 1
 
     timelens_dset = TimelensVimeoDataset.TimelensVimeoDataset(left_imgs, middle_imgs, right_imgs, event_roots, matching_ts, args)
     timelens_loader = DataLoader(timelens_dset, batch_size=args.batch_size, shuffle=False, num_workers=10, pin_memory=True)
@@ -92,72 +93,70 @@ def train(left_imgs, middle_imgs, right_imgs, event_roots, matching_ts, args, de
 
     #draw_models(timelens_loader, writer, netD, netG)
 
-    ####################
-    # Loss stats
-    G_losses = list()
-    D_losses = list()
-    ####################
 
-    wandb.watch(models= netG, criterion=lpips_loss, log= "gradients", log_freq=100)
+    wandb.watch(models= netG, criterion=lpips_loss, log= "gradients", log_freq=10)
 
     print("training")
     for epoch in tqdm(range(args.epochs)):
         for i, (trainable_features, left_ev_tensors, right_ev_tensors, targets) in enumerate(timelens_loader):
             print(f"{i+1}/{len(timelens_loader)}")
-            # Train D against 'real' data
-            netD.zero_grad()
-            b_size = targets.size(0)
-            gan_label = torch.full((b_size,), real_label, dtype=torch.float, device=device)
             
-            output = netD(trainable_features, targets).view(-1)
-            errD_real = bce_loss(output, gan_label)
-            # calculate gradients for D
-            errD_real.backward(retain_graph=True)
-            D_x = output.mean().item()
-
-
-            # Train G & D against 'fake' data
+            # 1 generate fake image from generator
             fake = netG(trainable_features).to("cpu")
-            gan_label.fill_(fake_label)
-            output = netD(trainable_features, fake).view(-1)
-            errD_fake = bce_loss(output, gan_label)
 
-            # calculate gradients for fake batch (summed with errD_real grads)
-            errD_fake.backward(retain_graph=True)
-            D_G_z1 = output.mean().item()
-            errD = errD_fake + errD_real
-            # update D
+            # 2 update D
+            # 2.1 enable backprop for D
+            for param in netD.parameters():
+                param.requires_grad = True
+            # 2.2 Flush gradients fo optimD
+            optimizerD.zero_grad()
+            # 2.3 Discriminator prediction on fake 
+            pred_fake = netD(trainable_features, fake, detach=True)
+            # 2.4 GAN criterion Discriminator BCE with logit loss with fake data
+            loss_D_fake = gan_criterion(pred_fake, False)
+            # 2.5 Discriminator prediction on real (targets)
+            pred_real = netD(trainable_features, targets, detach=False)
+            # 2.6 GAN criterion Discriminator BCE with logit loss with real data
+            loss_D_real = gan_criterion(pred_real, True)
+            # 2.7 Combined loss is averaged and passed through backward()
+            lossD = 0.5 * (loss_D_fake + loss_D_real)
+            lossD.backward()
+            # 2.8 Optimizer step on D
             optimizerD.step()
 
+            # 3 update G
+            # 3.1 disable backprop for D when training G
+            for param in netD.parameters():
+                param.requires_grad = False
 
-            # Update G
-            netG.zero_grad()
-            gan_label.fill_(real_label)
-            output = netD(trainable_features, fake).view(-1)
+            # 3.2 Flush gradients for optimG
+            optimizerG.zero_grad()
+
+            # 3.3 Get fake prediction from updated D
+            pred_fake = netD(trainable_features, fake, detach=False)
+            # 3.4 GAN loss for G
+            loss_G_GAN = gan_criterion(pred_fake, True)
+            
             fake = fake.to(device)
             targets = targets.to(device)
+            
+            # 3.5 L1 loss for G
+            loss_G_L1 = l1_loss(fake, targets)
+            # 3.5.1 skipping LPIPS loss
+            loss_G_Lpips = (lpips_loss(fake, targets).view(-1)).mean()
+            # 3.6 Combined G loss 
+            lossG = loss_G_GAN + (args.lambda_l1*loss_G_L1) + (args.lambda_lpips*loss_G_Lpips)
+            lossG.backward()
 
-            # Loss for generator bce + l1 + lpips
-            rawAdvLoss = bce_loss(output, gan_label)
-            _advLoss = args.lambda_adv*rawAdvLoss
+            # 3.7 Optimizer step for G
+            optimizerG.step()
 
-            rawL1Loss = l1_loss(fake, targets)
-            _l1Loss = (args.lambda_l1 * rawL1Loss)
-
-            rawPercepLoss = (lpips_loss(fake, targets).view(-1)).mean()
-            _percepLoss = (args.lambda_lpips * rawPercepLoss)
-
-            errG = _advLoss + _l1Loss + _percepLoss
-            if (i > 100): # 17 percent of batch size
-                errG.backward()
-
-                D_G_z2 = output.mean().item()
-                optimizerG.step()
 
             ##########################
             # Logging metrics
-            if i%10 == 0:
+            if i%30 == 0:
                 print("[%d]/[%d] [%d]/[%d]" %(epoch+1, args.epochs, i+1, len(timelens_loader)))
+
                 psnr_score = psnr(fake, targets)
                 wandb.log({
                     "fake": wandb.Image(fake),
@@ -165,20 +164,18 @@ def train(left_imgs, middle_imgs, right_imgs, event_roots, matching_ts, args, de
                     "psnr": psnr_score.item(),
                 })
 
-            G_losses.append(errG.item())
-            D_losses.append(errD.item())
-
             wandb.log({
-                "errD": errD.item(),
-                "errG": errG.item(),
-                "l1 loss": rawL1Loss,
-                "lpips loss": rawPercepLoss,
-                "G adv Loss": rawAdvLoss,
+                "lossG": lossG.item(),
+                "lossD": lossD.item(),
+                "l1_loss": loss_G_L1.item(),
+                "lpips": loss_G_Lpips.item(),
             })
             #########################
         wandb.log({
             "Epoch": epoch+1,
         })
+        genScheduler.step()
+        disScheduler.step()
 
 ###################################
 
@@ -214,7 +211,7 @@ def dirs_to_paths(seq_dirs):
         
         _dt = np.linspace(t_start, t_end, 19)
 
-        _event_root = os.path.join(_seq_dir, "events_ct3/")
+        _event_root = os.path.join(_seq_dir, "events/")
         event_roots.append(_event_root)
 
         #9 triplets
@@ -247,7 +244,6 @@ def dirs_to_paths(seq_dirs):
 
             right_path = os.path.join(_seq_dir, f"upsampled/imgs/{right_id}.png")  
             right_imgs.append(right_path)
-    print(event_roots[:5])
     return left_imgs, middle_imgs, right_imgs, event_roots, matching_ts
 def config_parse():
     import configargparse
