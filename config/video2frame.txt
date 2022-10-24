@@ -1,0 +1,2 @@
+video_path = /usr/stud/dave/storage/user/dave/whiteWallBounce/video_sequence/whiteWallBall.mp4
+target_frame_path = /usr/stud/dave/storage/user/dave/whiteWallBounce/original_frames

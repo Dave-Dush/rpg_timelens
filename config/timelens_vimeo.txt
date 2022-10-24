@@ -1,8 +1,8 @@
 equal_dir_txt = /usr/stud/dave/storage/user/dave/timelens_vimeo/equal_dirs.txt
 
-model_path = /usr/stud/dave/storage/user/dave/downsampled_models/alpha_07_bs_4_ds1k.pth
+model_path = /usr/stud/dave/storage/user/dave/downsampled_models/morerss_nc_cpu_baseline_cgan_bsize4_6triplets_500.pt
 
-epochs = 30
+epochs = 27
 
 width = 448
 
@@ -12,7 +12,7 @@ batch_size = 4
 
 lr = 1e-4
 
-dataset_size = 1000
+dataset_size = 500
 
 lambda_adv = 2
 
@@ -21,3 +21,9 @@ lambda_l1 = 2.0
 lambda_lpips = 2.0
 
 wandb_path = /usr/stud/dave/storage/user/dave/wandb_logs
+
+vfi_method = cgan
+
+mode = train
+
+message = cgan 6 triplets 200 videos proven HPs batch size 4 model to and fro between gpu and cpu
