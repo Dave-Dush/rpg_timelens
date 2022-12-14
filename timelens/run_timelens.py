@@ -8,7 +8,7 @@ import torch
 
 sys.path.append(dirname(dirname(__file__)))
 import torch as th
-from timelens import attention_average_network
+from timelens import attention_average_network, fusion_network
 from timelens.common import (
     hybrid_storage,
     image_sequence,
@@ -61,7 +61,7 @@ def _interpolate(
             example = pytorch_tools.move_tensors_to_cuda(example)
 
             with torch.no_grad():
-                frame, _ = network.run_fast(example)
+                frame = network.run_fusion(example)
     
             interpolated = th.clamp(
                 frame.squeeze().cpu().detach(), 0, 1,
@@ -78,8 +78,8 @@ def _interpolate(
 
 
 def _load_network(checkpoint_file):
-    network = attention_average_network.AttentionAverage()
-    network.from_legacy_checkpoint(checkpoint_file)
+    network = fusion_network.Fusion()
+    network.load_state_dict(torch.load(checkpoint_file))
     network.cuda()
     network.eval()
     return network

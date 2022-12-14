@@ -19,6 +19,8 @@ from timelens.common.losses import GANLoss
 from timelens.fusion_network import Fusion as Generator
 from timelens.Discriminator_network import Discriminator
 
+from memory_profiler import profile
+
 ###################################
 # Get Model Graphs
 def draw_models(timelens_loader, writer, netD, netG):
@@ -40,7 +42,7 @@ def weights_init(m):
         torch.nn.init.normal_(m.weight.data, 0.0, 0.02)
 #*******
 
-
+@profile
 def train(left_imgs, middle_imgs, right_imgs, event_roots, matching_ts, args, device):
 
     #writer = SummaryWriter(args.summary_path)
@@ -105,7 +107,7 @@ def train(left_imgs, middle_imgs, right_imgs, event_roots, matching_ts, args, de
     print("training")
     for epoch in tqdm(range(args.epochs)):
         psnr_batch = list()
-        for i, (trainable_features, left_ev_tensors, right_ev_tensors, targets) in enumerate(timelens_loader):
+        for i, (trainable_features, targets) in enumerate(timelens_loader):
             print(f"{i+1}/{len(timelens_loader)}")
             
             # 1 generate fake image from generator
@@ -227,11 +229,11 @@ def train(left_imgs, middle_imgs, right_imgs, event_roots, matching_ts, args, de
 
 ###################################
 # Data Utils
-def dirs_to_paths(seq_dirs):
+def dirs_to_paths(seq_dirs, triplets, contrast_threshold):
     """
     Return path dictionary that contains left, middle and right structure
     """
-    max_interpolations = len(seq_dirs) * 6 #6 triplets
+    max_interpolations = len(seq_dirs) * triplets #6 triplets
 
     event_roots = list()
 
@@ -240,8 +242,8 @@ def dirs_to_paths(seq_dirs):
     right_imgs = list()
     matching_ts = list()
 
-    for m_i in tqdm(range(0, max_interpolations, 6)):
-        dir_idx = math.floor(m_i/6)
+    for m_i in tqdm(range(0, max_interpolations, triplets)):
+        dir_idx = math.floor(m_i/triplets)
 
         _seq_dir = seq_dirs[dir_idx]
         _ts = list()
@@ -253,13 +255,17 @@ def dirs_to_paths(seq_dirs):
         t_start = _ts[0]
         t_end = _ts[-1]
         
-        _dt = np.linspace(t_start, t_end, 13)
+        _dt = np.linspace(t_start, t_end, (triplets*2)+1 )
 
-        _event_root = os.path.join(_seq_dir, "events/")
+        if( contrast_threshold == 0.35):
+            _event_root = os.path.join(_seq_dir, "events_ct3/")
+        else:
+            _event_root = os.path.join(_seq_dir, "events/")
+
         event_roots.append(_event_root)
 
-        #9 triplets
-        for in_i in range(6):
+        #6 triplets
+        for in_i in range(triplets):
 
             _left_t = _dt[(2 * in_i)]
             _middle_t = _dt[(2 * in_i) + 1]
@@ -289,6 +295,7 @@ def dirs_to_paths(seq_dirs):
             right_path = os.path.join(_seq_dir, f"upsampled/imgs/{right_id}.png")  
             right_imgs.append(right_path)
     return left_imgs, middle_imgs, right_imgs, event_roots, matching_ts
+
 def config_parse():
     import configargparse
 
@@ -324,6 +331,10 @@ def config_parse():
 
     parser.add_argument("--mode", type=str)
 
+    parser.add_argument("--triplets", type=int)
+
+    parser.add_argument("--contrast_threshold", type=float)
+
     parser.add_argument("--message", type=str)
 
     args = parser.parse_args()
@@ -350,7 +361,7 @@ if __name__ == "__main__":
     
     dir_list = dir_list[:dset_size]
 
-    left_imgs, middle_imgs, right_imgs, event_roots, matching_ts = dirs_to_paths(dir_list)
+    left_imgs, middle_imgs, right_imgs, event_roots, matching_ts = dirs_to_paths(dir_list, args.triplets, args.contrast_threshold)
     #print(left_imgs, "\n", middle_imgs, "\n", right_imgs, "\n", matching_ts)
 
     train(left_imgs, middle_imgs, right_imgs, event_roots, matching_ts, args, device)
